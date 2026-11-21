@@ -80,7 +80,7 @@
 <div class="overlay" id="start">
   <h1>STERNEN&shy;JÄGER</h1>
   <p>Leg den Finger irgendwo auf den Bildschirm und zieh – dein Raumschiff folgt der Bewegung und schießt automatisch.</p>
-  <p>Kämpf dich durch 6 Level mit immer neuen Gegnern. Am Ende jedes Levels wartet ein Boss!</p>
+  <p>Kämpf dich durch 6 Level mit immer neuen Gegnern. Weich den feindlichen Schüssen und Laserstrahlen aus! Am Ende jedes Levels wartet ein anderer Boss.</p>
   <p>Dein Schiff startet mit Mini-Raketen und Sidewinder-Raketen, die sich ihr Ziel selbst suchen. Sammle Extras: ⚡ Dreifachschuss, Raketen-Upgrades (bleiben für immer!), Schild und ♥ Extraleben.</p>
   <button id="startBtn" type="button">START</button>
   <p id="bestStart"></p>
@@ -254,6 +254,7 @@
       }
     } else if (e.kind === 'bug') {
       e.t += dt; e.y += e.vy * dt; e.x = e.x0 + Math.sin(e.t * 2.6) * e.amp;
+      if (level >= 4 && e.y > 20 && e.y < H * 0.6 && Math.random() < dt * 0.3) shoot(e.x, e.y + 8, Math.PI / 2, shotSpeed(150), 'orb');
     } else if (e.kind === 'crystal') {
       e.x += e.vx * dt; e.y += e.vy * dt; e.rot += e.vr * dt;
       if (e.x < e.r) e.vx = Math.abs(e.vx);
@@ -266,8 +267,9 @@
       } else e.y += 80 * dt;
       e.shootT -= dt;
       if (e.shootT <= 0 && e.y > 0) {
-        e.shootT = 1.8;
-        for (const a of [-0.35, 0, 0.35]) enemyShots.push({ x: e.x, y: e.y + 20, vx: Math.sin(a) * 200, vy: Math.cos(a) * 200 });
+        e.shootT = 1.4;
+        const base = aimAt(e.x, e.y + 20);
+        for (const a of level >= 7 ? [-0.5, -0.25, 0, 0.25, 0.5] : [-0.3, 0, 0.3]) shoot(e.x, e.y + 20, base + a, shotSpeed(200));
         beep(220, 0.1, 'square', 0.03, -80);
       }
     }
@@ -330,53 +332,194 @@
   }
 
   // ---------- Boss ----------
+  const BOSSES = [
+    { name: 'MUTTERSCHIFF', color: '#d68bff', w: 66, h: 30 },
+    { name: 'HORNISSE', color: '#ffd23f', w: 44, h: 34 },
+    { name: 'MINENLEGER', color: '#ff7a59', w: 78, h: 26 },
+    { name: 'SCHWARMKÖNIGIN', color: '#c6ff4d', w: 50, h: 40 },
+    { name: 'KRISTALLKOLOSS', color: '#8fe9ff', w: 44, h: 44 },
+    { name: 'FESTUNGSKREUZER', color: '#ff9f43', w: 84, h: 30 }
+  ];
+
+  function shoot(x, y, ang, sp, type) { enemyShots.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, type }); }
+  function aimAt(x, y) { return Math.atan2(ship.y - y, ship.x - x); }
+  function shotSpeed(base) { return base * (1 + (level - 1) * 0.06); }
+  function bossRange(b) { return Math.max(20, W / 2 - b.w - 8); }
+
   function spawnBoss() {
     bossCount++;
-    const maxHp = 40 + bossCount * 25;
-    boss = { x: W / 2, y: -90, targetY: 130, t: 0, hp: maxHp, maxHp, shootT: 2, attack: 0, flash: 0 };
-    bossWarn = 2.2; bannerText = 'BOSS!'; bannerSub = ''; bannerSub2 = '';
+    const type = (bossCount - 1) % BOSSES.length;
+    const def = BOSSES[type];
+    const maxHp = 45 + bossCount * 28;
+    boss = { type, def, w: def.w, h: def.h, x: W / 2, y: -100, targetY: 140, t: 0, hp: maxHp, maxHp,
+             shootT: 1.5, attack: 0, flash: 0, lasers: [], spin: 0, mode: 'hover', entered: false };
+    bossWarn = 2.4; bannerText = def.name + '!'; bannerSub = ''; bannerSub2 = '';
     enemyShots = [];
     beep(90, 0.8, 'sawtooth', 0.09, 60);
   }
 
-  function updateBoss(dt) {
-    const b = boss;
-    b.t += dt;
-    if (b.flash > 0) b.flash -= dt;
-    if (b.y < b.targetY) { b.y += 70 * dt; }
-    else {
-      const range = Math.max(20, W / 2 - 75);
-      b.x = W / 2 + Math.sin(b.t * (0.7 + bossCount * 0.1)) * range;
+  function makeLaser(x, track, width) { return { x, track, width: width || 26, warn: 1.2, fire: 0.7 }; }
+
+  const BOSS_AI = [
+    // 0 Mutterschiff: sways, alternates fan and aimed bursts
+    (b, dt, angry) => {
+      b.x = W / 2 + Math.sin(b.t * 0.8) * bossRange(b);
       b.shootT -= dt;
-      const angry = b.hp < b.maxHp * 0.4;
       if (b.shootT <= 0) {
         b.attack++;
-        if (b.attack % 2 === 1) {
-          // fan of shots downward
-          const n = angry ? 9 : 7;
-          for (let i = 0; i < n; i++) {
-            const a = Math.PI / 2 + (i - (n - 1) / 2) * 0.22;
-            enemyShots.push({ x: b.x, y: b.y + 24, vx: Math.cos(a) * 170, vy: Math.sin(a) * 170 });
-          }
+        if (b.attack % 2) {
+          const n = angry ? 11 : 8;
+          for (let i = 0; i < n; i++) shoot(b.x, b.y + 24, Math.PI / 2 + (i - (n - 1) / 2) * 0.2, shotSpeed(170));
         } else {
-          // aimed burst from both cannons
           for (const side of [-1, 1]) {
-            const sx = b.x + side * 44, sy = b.y + 12;
-            const a = Math.atan2(ship.y - sy, ship.x - sx);
-            for (let k = 0; k < 3; k++) {
-              const sp = 220 + k * 45;
-              enemyShots.push({ x: sx, y: sy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp });
-            }
+            const sx = b.x + side * 44, sy = b.y + 12, a = aimAt(sx, sy);
+            for (let k = 0; k < 3; k++) shoot(sx, sy, a, shotSpeed(220 + k * 45));
           }
         }
         beep(160, 0.15, 'square', 0.04, -60);
-        b.shootT = angry ? 0.85 : 1.3;
+        b.shootT = angry ? 0.8 : 1.2;
+      }
+    },
+    // 1 Hornisse: needle bursts, then aims and dives at you
+    (b, dt, angry) => {
+      if (b.mode === 'hover') {
+        b.x += (W / 2 + Math.sin(b.t * 1.7) * bossRange(b) - b.x) * Math.min(1, dt * 4);
+        b.y += (b.targetY - b.y) * Math.min(1, dt * 3);
+        if (b.burst > 0) {
+          b.burstT -= dt;
+          if (b.burstT <= 0) { b.burstT = 0.08; b.burst--; shoot(b.x, b.y + 24, aimAt(b.x, b.y + 24), shotSpeed(330), 'needle'); }
+        } else {
+          b.shootT -= dt;
+          if (b.shootT <= 0) { b.attack++; b.burst = angry ? 8 : 5; b.burstT = 0; b.shootT = angry ? 1.0 : 1.5; beep(900, 0.1, 'square', 0.03, 300); }
+          if (b.attack >= 3) { b.attack = 0; b.mode = 'aim'; b.modeT = 0.9; }
+        }
+      } else if (b.mode === 'aim') {
+        b.modeT -= dt;
+        if (b.modeT > 0.3) b.diveX = ship.x;
+        b.x += (b.diveX - b.x) * Math.min(1, dt * 6);
+        if (b.modeT <= 0) { b.mode = 'dive'; beep(200, 0.4, 'sawtooth', 0.06, 400); }
+      } else if (b.mode === 'dive') {
+        b.y += shotSpeed(560) * dt;
+        if (b.y > H * 0.78) {
+          b.mode = 'return';
+          const n = angry ? 14 : 10;
+          for (let i = 0; i < n; i++) shoot(b.x, b.y, i / n * Math.PI * 2, shotSpeed(150));
+        }
+      } else {
+        b.y -= 320 * dt;
+        if (b.y <= b.targetY) { b.y = b.targetY; b.mode = 'hover'; }
+      }
+    },
+    // 2 Minenleger: drops mines, fires rotating rings of slow orbs
+    (b, dt, angry) => {
+      b.x = W / 2 + Math.sin(b.t * 0.5) * bossRange(b);
+      b.shootT -= dt;
+      if (b.shootT <= 0) {
+        b.attack++;
+        if (b.attack % 3 === 0) {
+          for (const s of [-1, 1]) enemies.push({ kind: 'mine', x: b.x + s * 46, y: b.y + 20, r: 14, vy: 75, hp: 3, pts: 35, t: 0, fuse: 0 });
+          beep(300, 0.2, 'triangle', 0.05, -150);
+        } else {
+          const n = angry ? 16 : 12, off = b.t * 1.3;
+          for (let i = 0; i < n; i++) shoot(b.x, b.y + 10, off + i / n * Math.PI * 2, shotSpeed(115), 'orb');
+          beep(240, 0.2, 'sine', 0.06, -80);
+        }
+        b.shootT = angry ? 1.0 : 1.5;
+      }
+    },
+    // 3 Schwarmkönigin: spiral of shots, then calls a swarm
+    (b, dt, angry) => {
+      b.x = W / 2 + Math.sin(b.t * 0.9) * bossRange(b);
+      b.y = b.targetY + Math.sin(b.t * 1.8) * 25;
+      const cycle = b.t % 5;
+      if (cycle < 2.8) {
+        b.spawned = false;
+        b.spinT = (b.spinT || 0) - dt;
+        if (b.spinT <= 0) {
+          b.spinT = angry ? 0.07 : 0.1;
+          b.spin += 0.33;
+          const arms = angry ? 3 : 2;
+          for (let k = 0; k < arms; k++) shoot(b.x, b.y + 10, b.spin + k * Math.PI * 2 / arms, shotSpeed(140));
+        }
+      } else if (!b.spawned) {
+        b.spawned = true;
+        const amp = Math.min(W * 0.3, 140);
+        for (let i = 0; i < 5; i++) enemies.push({ kind: 'bug', x: b.x, x0: Math.min(Math.max(b.x, amp + 10), W - amp - 10), amp, y: b.y + 10 - i * 30, r: 10, vy: 130, hp: 1, pts: 15, t: i * 0.5 });
+        beep(500, 0.3, 'triangle', 0.05, -300);
+      }
+    },
+    // 4 Kristallkoloss: tracking laser and needle spreads
+    (b, dt, angry) => {
+      b.spin += dt * (angry ? 2 : 1);
+      if (!b.lasers.length) b.x += (W / 2 + Math.sin(b.t * 0.6) * bossRange(b) * 0.7 - b.x) * Math.min(1, dt * 2);
+      b.shootT -= dt;
+      if (b.shootT <= 0 && !b.lasers.length) {
+        b.attack++;
+        if (b.attack % 2) {
+          b.lasers.push(makeLaser(ship.x, true, 28));
+          if (angry) b.lasers.push(makeLaser(W - ship.x, false, 28));
+          b.shootT = 2.4;
+        } else {
+          const a = aimAt(b.x, b.y);
+          for (let i = -2; i <= 2; i++) shoot(b.x, b.y, a + i * 0.18, shotSpeed(230), 'needle');
+          if (angry) for (let i = 0; i < 8; i++) shoot(b.x, b.y, i / 8 * Math.PI * 2 + b.spin, shotSpeed(130), 'orb');
+          b.shootT = 1.0;
+          beep(1100, 0.1, 'triangle', 0.04, -500);
+        }
+      }
+    },
+    // 5 Festungskreuzer: turret fire, laser walls with one safe gap, slow orb fans
+    (b, dt, angry) => {
+      if (!b.lasers.length) b.x = W / 2 + Math.sin(b.t * 0.4) * bossRange(b);
+      b.gunT = (b.gunT ?? 1) - dt;
+      if (b.gunT <= 0) {
+        b.gunT = angry ? 0.4 : 0.65;
+        b.gunSide = -(b.gunSide || 1);
+        const sx = b.x + b.gunSide * 58, sy = b.y + 14;
+        shoot(sx, sy, aimAt(sx, sy), shotSpeed(240));
+      }
+      b.shootT -= dt;
+      if (b.shootT <= 0 && !b.lasers.length) {
+        b.attack++;
+        if (b.attack % 2) {
+          const cols = 5, cw = W / cols, safe = Math.floor(Math.random() * cols);
+          for (let c = 0; c < cols; c++) {
+            if (c === safe) continue;
+            if (!angry && Math.abs(c - safe) > 1 && c % 2 === safe % 2) continue;
+            b.lasers.push(makeLaser(cw * (c + 0.5), false, cw * 0.6));
+          }
+          b.shootT = 3;
+        } else {
+          for (let i = 0; i < 9; i++) shoot(b.x, b.y + 20, Math.PI / 2 + (i - 4) * 0.22, shotSpeed(130), 'orb');
+          b.shootT = 1.4;
+        }
       }
     }
+  ];
+
+  function updateBoss(dt) {
+    const b = boss;
+    b.t += dt;
+    b.flash -= dt;
+    const angry = b.hp < b.maxHp * 0.4;
+    if (!b.entered) { b.y += 80 * dt; if (b.y >= b.targetY) b.entered = true; }
+    else BOSS_AI[b.type](b, dt, angry);
+    // lasers
+    for (const L of b.lasers) {
+      if (L.warn > 0) {
+        L.warn -= dt;
+        if (L.track && L.warn > 0.35) L.x += (ship.x - L.x) * Math.min(1, dt * 3);
+        if (L.warn <= 0) { beep(80, 0.5, 'sawtooth', 0.08, 40); shake = Math.max(shake, 0.15); }
+      } else {
+        L.fire -= dt;
+        if (Math.abs(ship.x - L.x) < L.width / 2 + 4 && ship.y > b.y) hitShip();
+      }
+    }
+    b.lasers = b.lasers.filter(L => L.warn > 0 || L.fire > 0);
     // hits from player bullets
     for (const bl of bullets) {
       if (bl.dead) continue;
-      const dx = (bl.x - b.x) / 66, dy = (bl.y - b.y) / 30;
+      const dx = (bl.x - b.x) / b.w, dy = (bl.y - b.y) / b.h;
       if (dx * dx + dy * dy < 1) {
         bl.dead = true;
         boom(bl.x, bl.y, '#ffe066', 3, 70);
@@ -384,12 +527,12 @@
       }
     }
     // ramming
-    const dx = (ship.x - b.x) / 76, dy = (ship.y - b.y) / 38;
+    const dx = (ship.x - b.x) / (b.w + 10), dy = (ship.y - b.y) / (b.h + 8);
     if (dx * dx + dy * dy < 1) hitShip();
   }
 
   function damageBoss(dmg) {
-    boss.hp -= dmg; boss.flash = 0.08;
+    boss.hp -= dmg; if (boss.flash < -0.2) boss.flash = 0.05;
     if (boss.hp <= 0) { killBoss(); return true; }
     return false;
   }
@@ -472,7 +615,7 @@
         }
       }
       if (!m.dead && boss) {
-        const dx = (m.x - boss.x) / 66, dy = (m.y - boss.y) / 30;
+        const dx = (m.x - boss.x) / boss.w, dy = (m.y - boss.y) / boss.h;
         if (dx * dx + dy * dy < 1) { m.dead = true; boom(m.x, m.y, m.mini ? '#5ee6ff' : '#ff9f43', m.mini ? 6 : 14, 160); damageBoss(m.mini ? 1 : 4); }
       }
     }
@@ -541,7 +684,7 @@
     const b = boss;
     const pts = 500 * bossCount;
     score += pts; updateHud();
-    for (let i = 0; i < 6; i++) boom(b.x + (Math.random() - 0.5) * 110, b.y + (Math.random() - 0.5) * 40, i % 2 ? '#d68bff' : '#ffe066', 26, 260);
+    for (let i = 0; i < 6; i++) boom(b.x + (Math.random() - 0.5) * 110, b.y + (Math.random() - 0.5) * 40, i % 2 ? b.def.color : '#ffe066', 26, 260);
     beep(70, 1.0, 'sawtooth', 0.1, -40);
     shake = 0.5;
     ['heart', 'shield', 'missile', 'rapid'].forEach((k, i) => powerups.push({ x: b.x - 45 + i * 30, y: b.y, kind: k, t: 0 }));
@@ -552,46 +695,178 @@
     levelPause = 3.2;
   }
 
+  function drawLasers(b) {
+    for (const L of b.lasers) {
+      const x0 = L.x - L.width / 2;
+      if (L.warn > 0) {
+        ctx.fillStyle = 'rgba(255,85,119,0.10)';
+        ctx.fillRect(x0, b.y, L.width, H - b.y);
+        ctx.strokeStyle = `rgba(255,85,119,${0.45 + 0.4 * Math.sin(time * 30)})`;
+        ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
+        ctx.beginPath(); ctx.moveTo(L.x, b.y); ctx.lineTo(L.x, H); ctx.stroke();
+        ctx.setLineDash([]);
+      } else {
+        const wob = 1 + Math.sin(time * 60) * 0.08;
+        ctx.shadowColor = b.def.color; ctx.shadowBlur = 24;
+        ctx.fillStyle = b.def.color; ctx.globalAlpha = 0.75;
+        ctx.fillRect(L.x - L.width / 2 * wob, b.y, L.width * wob, H - b.y);
+        ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(L.x - L.width / 6, b.y, L.width / 3, H - b.y);
+      }
+    }
+  }
+
+  const BOSS_DRAW = [
+    // 0 Mutterschiff (saucer)
+    (b, C, angry) => {
+      ctx.fillStyle = C('#5a2d82');
+      for (const s of [-1, 1]) ctx.fillRect(s * 44 - 7, 4, 14, 22);
+      ctx.shadowColor = '#d68bff'; ctx.shadowBlur = 24;
+      ctx.fillStyle = C('#8e44d6');
+      ctx.beginPath(); ctx.ellipse(0, 6, 70, 22, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = C('#d68bff');
+      ctx.beginPath(); ctx.ellipse(0, 0, 70, 9, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(214,139,255,0.35)';
+      ctx.beginPath(); ctx.ellipse(0, -6, 30, 26, 0, Math.PI, 0); ctx.fill();
+      const pulse = 7 + Math.sin(b.t * (angry ? 14 : 6)) * 2;
+      ctx.fillStyle = angry ? '#ff5577' : '#ffe066';
+      ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 18;
+      ctx.beginPath(); ctx.arc(0, -14, pulse, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      for (let i = 0; i < 8; i++) {
+        ctx.fillStyle = Math.floor(b.t * 6 + i) % 2 === 0 ? '#5ee6ff' : '#2a3a66';
+        ctx.beginPath(); ctx.arc(-56 + i * 16, 14, 3, 0, Math.PI * 2); ctx.fill();
+      }
+    },
+    // 1 Hornisse (striped wasp, stinger down)
+    (b, C, angry) => {
+      const flap = Math.abs(Math.sin(b.t * 28));
+      ctx.fillStyle = 'rgba(220,240,255,0.35)';
+      for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(s * 30, -18, 30, 8 + flap * 8, s * -0.5, 0, Math.PI * 2); ctx.fill(); }
+      ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 18;
+      ctx.fillStyle = C('#ffd23f');
+      ctx.beginPath(); ctx.ellipse(0, 6, 24, 30, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = C('#1d1a10');
+      for (const y of [-6, 6, 18]) ctx.fillRect(-23, y, 46, 6);
+      ctx.beginPath(); ctx.moveTo(-7, 32); ctx.lineTo(0, 50); ctx.lineTo(7, 32); ctx.fill();
+      ctx.fillStyle = C('#ffd23f');
+      ctx.beginPath(); ctx.arc(0, -28, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = angry || b.mode === 'aim' ? '#ff5577' : '#1d1a10';
+      for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(s * 7, -30, 5, 7, 0, 0, Math.PI * 2); ctx.fill(); }
+      if (b.mode === 'aim') {
+        ctx.strokeStyle = `rgba(255,85,119,${0.5 + 0.4 * Math.sin(time * 30)})`;
+        ctx.lineWidth = 2; ctx.setLineDash([8, 8]);
+        ctx.beginPath(); ctx.moveTo(0, 50); ctx.lineTo(0, H); ctx.stroke(); ctx.setLineDash([]);
+      }
+    },
+    // 2 Minenleger (wide armored barge with mine racks)
+    (b, C, angry) => {
+      ctx.shadowColor = '#ff7a59'; ctx.shadowBlur = 18;
+      ctx.fillStyle = C('#7a3524');
+      ctx.beginPath(); ctx.moveTo(-82, -14); ctx.lineTo(82, -14); ctx.lineTo(64, 20); ctx.lineTo(-64, 20); ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = C('#ff7a59'); ctx.fillRect(-82, -14, 164, 7);
+      ctx.fillStyle = C('#2a1a14'); ctx.fillRect(-40, 4, 80, 12);
+      for (let i = 0; i < 5; i++) {
+        const mx = -32 + i * 16;
+        ctx.fillStyle = '#3b2a4a'; ctx.beginPath(); ctx.arc(mx, 10, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = Math.floor(b.t * 4 + i) % 2 ? '#ff5577' : '#5a2233';
+        ctx.beginPath(); ctx.arc(mx, 10, 2, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = angry ? '#ff5577' : '#ffe066';
+      ctx.fillRect(-14, -24, 28, 10);
+      ctx.fillStyle = '#070a1a'; ctx.fillRect(-10, -21, 20, 4);
+    },
+    // 3 Schwarmkönigin (insect queen with crown)
+    (b, C, angry) => {
+      const flap = Math.abs(Math.sin(b.t * 18));
+      ctx.fillStyle = 'rgba(200,255,120,0.3)';
+      for (const s of [-1, 1]) {
+        ctx.beginPath(); ctx.ellipse(s * 40, -8, 36, 12 + flap * 10, s * -0.3, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(s * 34, 12, 26, 8 + flap * 6, s * 0.4, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.shadowColor = '#c6ff4d'; ctx.shadowBlur = 20;
+      ctx.fillStyle = C('#6f9e1f');
+      ctx.beginPath(); ctx.ellipse(0, 14, 22, 30, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = C('#c6ff4d');
+      ctx.beginPath(); ctx.ellipse(0, -16, 16, 14, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = C('#ffd23f');
+      ctx.beginPath(); ctx.moveTo(-14, -26);
+      for (let i = 0; i < 5; i++) { ctx.lineTo(-14 + i * 7 + 3.5, -40); ctx.lineTo(-14 + (i + 1) * 7, -28); }
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = angry ? '#ff5577' : '#070a1a';
+      for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(s * 6, -15, 3.5, 0, Math.PI * 2); ctx.fill(); }
+      ctx.strokeStyle = C('#3f5c10'); ctx.lineWidth = 3;
+      for (const y of [6, 18, 30]) { ctx.beginPath(); ctx.moveTo(-18, y); ctx.lineTo(18, y); ctx.stroke(); }
+    },
+    // 4 Kristallkoloss (rotating crystal with orbiting shards)
+    (b, C, angry) => {
+      for (let i = 0; i < 6; i++) {
+        const a = b.spin * 1.5 + i / 6 * Math.PI * 2;
+        ctx.save(); ctx.translate(Math.cos(a) * 58, Math.sin(a) * 58); ctx.rotate(a);
+        ctx.fillStyle = 'rgba(143,233,255,0.6)';
+        ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(5, 0); ctx.lineTo(0, 8); ctx.lineTo(-5, 0); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+      ctx.rotate(b.spin);
+      ctx.shadowColor = '#8fe9ff'; ctx.shadowBlur = 26;
+      ctx.fillStyle = C('rgba(143,233,255,0.45)'); ctx.strokeStyle = C('#d8f8ff'); ctx.lineWidth = 3;
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const a = i / 8 * Math.PI * 2, rr = 44 * (i % 2 ? 0.7 : 1);
+        i ? ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : ctx.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.shadowBlur = 0;
+      const pulse = 10 + Math.sin(b.t * (angry ? 12 : 5)) * 3;
+      ctx.fillStyle = angry ? '#ff5577' : '#ffffff';
+      ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 20;
+      ctx.beginPath(); ctx.arc(0, 0, pulse, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+    },
+    // 5 Festungskreuzer (heavy block with two aiming turrets)
+    (b, C, angry) => {
+      ctx.shadowColor = '#ff9f43'; ctx.shadowBlur = 18;
+      ctx.fillStyle = C('#3d4361'); ctx.fillRect(-88, -20, 176, 40);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = C('#ff9f43'); ctx.fillRect(-88, -20, 176, 6); ctx.fillRect(-30, -32, 60, 14);
+      ctx.fillStyle = C('#2a2f48'); for (let i = -3; i <= 3; i++) ctx.fillRect(i * 22 - 6, 6, 12, 10);
+      for (const s of [-1, 1]) {
+        ctx.save(); ctx.translate(s * 58, 14);
+        ctx.rotate(Math.atan2(ship.y - (b.y + 14), ship.x - (b.x + s * 58)) - Math.PI / 2);
+        ctx.fillStyle = C('#8a93c4'); ctx.fillRect(-3, 0, 6, 20);
+        ctx.fillStyle = C('#4a5070'); ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+      ctx.fillStyle = angry ? '#ff5577' : '#5ee6ff';
+      ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 14;
+      ctx.fillRect(-18, -28, 36, 6);
+      ctx.shadowBlur = 0;
+    }
+  ];
+
   function drawBoss() {
     const b = boss;
-    ctx.save(); ctx.translate(b.x, b.y);
     const hit = b.flash > 0;
-    // side cannons
-    ctx.fillStyle = hit ? '#ffffff' : '#5a2d82';
-    for (const s of [-1, 1]) { ctx.fillRect(s * 44 - 7, 4, 14, 22); }
-    // hull
-    ctx.shadowColor = '#d68bff'; ctx.shadowBlur = 24;
-    ctx.fillStyle = hit ? '#ffffff' : '#8e44d6';
-    ctx.beginPath(); ctx.ellipse(0, 6, 70, 22, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = hit ? '#ffffff' : '#d68bff';
-    ctx.beginPath(); ctx.ellipse(0, 0, 70, 9, 0, 0, Math.PI * 2); ctx.fill();
-    // dome
-    ctx.fillStyle = 'rgba(214,139,255,0.35)';
-    ctx.beginPath(); ctx.ellipse(0, -6, 30, 26, 0, Math.PI, 0); ctx.fill();
-    // eye
     const angry = b.hp < b.maxHp * 0.4;
-    const pulse = 7 + Math.sin(b.t * (angry ? 14 : 6)) * 2;
-    ctx.fillStyle = angry ? '#ff5577' : '#ffe066';
-    ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 18;
-    ctx.beginPath(); ctx.arc(0, -14, pulse, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0;
-    // lights around the rim
-    for (let i = 0; i < 8; i++) {
-      const on = Math.floor(b.t * 6 + i) % 2 === 0;
-      ctx.fillStyle = on ? '#5ee6ff' : '#2a3a66';
-      ctx.beginPath(); ctx.arc(-56 + i * 16, 14, 3, 0, Math.PI * 2); ctx.fill();
-    }
+    const C = c => hit ? '#ffffff' : c;
+    drawLasers(b);
+    ctx.save(); ctx.translate(b.x, b.y);
+    BOSS_DRAW[b.type](b, C, angry);
     ctx.restore();
 
     // health bar
     const bw = Math.min(W - 40, 320), bx = (W - bw) / 2, by = 76;
     ctx.fillStyle = 'rgba(232,236,255,0.15)'; ctx.fillRect(bx, by, bw, 8);
-    ctx.fillStyle = angry ? '#ff5577' : '#d68bff';
+    ctx.fillStyle = angry ? '#ff5577' : b.def.color;
     ctx.fillRect(bx, by, bw * Math.max(0, b.hp / b.maxHp), 8);
     ctx.fillStyle = '#e8ecff'; ctx.font = '600 11px Orbitron, system-ui, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText('MUTTERSCHIFF', W / 2, by - 3);
+    ctx.fillText(b.def.name, W / 2, by - 3);
   }
 
   function boom(x, y, color, n = 18, speed = 180) {
@@ -665,11 +940,15 @@
         e.x = e.baseX + Math.sin(e.phase) * 60;
         e.shootT -= dt;
         if (e.shootT <= 0 && e.y > 0 && e.y < H * 0.7) {
-          e.shootT = 1.6 + Math.random();
-          const a = Math.atan2(ship.y - e.y, ship.x - e.x);
-          enemyShots.push({ x: e.x, y: e.y + 10, vx: Math.cos(a) * 200, vy: Math.sin(a) * 200 });
+          e.shootT = Math.max(0.7, 1.8 - level * 0.15) + Math.random() * 0.8;
+          const a = aimAt(e.x, e.y + 10);
+          if (level >= 3) for (const d of [-0.2, 0, 0.2]) shoot(e.x, e.y + 10, a + d, shotSpeed(200));
+          else shoot(e.x, e.y + 10, a, shotSpeed(200));
         }
-      } else if (e.kind === 'dart') { e.y += e.vy * dt; e.x += (ship.x - e.x) * 0.6 * dt; }
+      } else if (e.kind === 'dart') {
+        e.y += e.vy * dt; e.x += (ship.x - e.x) * 0.6 * dt;
+        if (!e.fired && e.y > H * 0.2) { e.fired = true; shoot(e.x, e.y + 12, aimAt(e.x, e.y + 12), shotSpeed(300), 'needle'); }
+      }
       else moveSpecial(e, dt);
 
       // collision with bullets
@@ -693,7 +972,8 @@
     // enemy shots
     for (const s of enemyShots) {
       s.x += s.vx * dt; s.y += s.vy * dt;
-      if (Math.hypot(s.x - ship.x, s.y - ship.y) < ship.r * 0.7 + 4) { s.dead = true; hitShip(); }
+      const sr = s.type === 'orb' ? 7 : s.type === 'needle' ? 3 : 4;
+      if (Math.hypot(s.x - ship.x, s.y - ship.y) < ship.r * 0.7 + sr) { s.dead = true; hitShip(); }
     }
     enemyShots = enemyShots.filter(s => !s.dead && s.y < H + 20 && s.y > -20 && s.x > -20 && s.x < W + 20);
 
@@ -823,7 +1103,22 @@
       enemies.forEach(drawEnemy);
       if (boss) drawBoss(); else drawProgress();
       ctx.fillStyle = '#ff5577';
-      for (const s of enemyShots) { ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, Math.PI * 2); ctx.fill(); }
+      for (const s of enemyShots) {
+        if (s.type === 'orb') {
+          ctx.fillStyle = '#ff7ad9'; ctx.shadowColor = '#ff7ad9'; ctx.shadowBlur = 12;
+          ctx.beginPath(); ctx.arc(s.x, s.y, 7, 0, Math.PI * 2); ctx.fill();
+          ctx.shadowBlur = 0; ctx.fillStyle = '#ffe6f7';
+          ctx.beginPath(); ctx.arc(s.x, s.y, 3, 0, Math.PI * 2); ctx.fill();
+        } else if (s.type === 'needle') {
+          const l = Math.hypot(s.vx, s.vy) || 1;
+          ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 3; ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 8;
+          ctx.beginPath(); ctx.moveTo(s.x - s.vx / l * 12, s.y - s.vy / l * 12); ctx.lineTo(s.x, s.y); ctx.stroke();
+          ctx.shadowBlur = 0;
+        } else {
+          ctx.fillStyle = '#ff5577';
+          ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, Math.PI * 2); ctx.fill();
+        }
+      }
       missiles.forEach(drawMissile);
       powerups.forEach(drawPowerup);
       drawShip();
