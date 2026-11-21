@@ -38,6 +38,10 @@
   }
   .hud .lives { color: var(--danger); letter-spacing: 0.2em; }
   .hud .label { color: var(--muted); font-size: 0.7rem; margin-right: 6px; }
+  .hud .power { display: flex; gap: 10px; font-size: 0.7rem; flex-wrap: wrap; justify-content: center; }
+  .hud .power .sh { color: #7fb2ff; }
+  .hud .power .mi { color: #ff9f43; }
+  .hud .power .ra { color: var(--laser); }
   .overlay {
     position: fixed; inset: 0;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
@@ -68,6 +72,7 @@
 
 <div class="hud" id="hud" hidden>
   <div><span class="label">PUNKTE</span><span id="score">0</span></div>
+  <div class="power" id="power"></div>
   <div class="lives" id="lives">♥♥♥</div>
 </div>
 
@@ -75,6 +80,7 @@
   <h1>STERNEN&shy;JÄGER</h1>
   <p>Leg den Finger irgendwo auf den Bildschirm und zieh – dein Raumschiff folgt der Bewegung und schießt automatisch.</p>
   <p>Schieß Asteroiden und Alien-Schiffe ab. Ab 600 Punkten kommt das Mutterschiff – besiege den Boss!</p>
+  <p>Sammle Extras: ⚡ Dreifachschuss, Raketen, Schild und ♥ Extraleben.</p>
   <button id="startBtn" type="button">START</button>
   <p id="bestStart"></p>
 </div>
@@ -132,12 +138,14 @@
   let ship, bullets, enemies, enemyShots, particles, powerups;
   let score, lives, running = false, time = 0, spawnTimer = 0, fireTimer = 0, invuln = 0, rapid = 0, shake = 0;
   let boss = null, bossCount = 0, nextBossAt = 600, bossWarn = 0, bannerText = '';
+  let missiles = [], missileT = 0, missileFire = 0, shield = 0, powerText = '';
 
   function reset() {
     ship = { x: W / 2, y: H - 110, r: 16 };
     bullets = []; enemies = []; enemyShots = []; particles = []; powerups = [];
     score = 0; lives = 3; time = 0; spawnTimer = 0.6; fireTimer = 0; invuln = 1.5; rapid = 0; shake = 0;
     boss = null; bossCount = 0; nextBossAt = 600; bossWarn = 0;
+    missiles = []; missileT = 0; missileFire = 0; shield = 0;
     updateHud();
   }
   function updateHud() {
@@ -245,14 +253,126 @@
       if (bl.dead) continue;
       const dx = (bl.x - b.x) / 66, dy = (bl.y - b.y) / 30;
       if (dx * dx + dy * dy < 1) {
-        bl.dead = true; b.hp--; b.flash = 0.08;
+        bl.dead = true;
         boom(bl.x, bl.y, '#ffe066', 3, 70);
-        if (b.hp <= 0) { killBoss(); return; }
+        if (damageBoss(1)) return;
       }
     }
     // ramming
     const dx = (ship.x - b.x) / 76, dy = (ship.y - b.y) / 38;
     if (dx * dx + dy * dy < 1) hitShip();
+  }
+
+  function damageBoss(dmg) {
+    boss.hp -= dmg; boss.flash = 0.08;
+    if (boss.hp <= 0) { killBoss(); return true; }
+    return false;
+  }
+
+  function randomPowerup() {
+    const r = Math.random();
+    return r < 0.3 ? 'rapid' : r < 0.55 ? 'missile' : r < 0.8 ? 'shield' : 'heart';
+  }
+
+  function damageEnemy(e, dmg) {
+    if (e.dead) return;
+    e.hp -= dmg;
+    if (e.hp <= 0) {
+      e.dead = true; score += e.pts; updateHud();
+      boom(e.x, e.y, e.kind === 'rock' ? '#c9a27a' : e.kind === 'alien' ? '#9dff6e' : '#ff5577', 22);
+      beep(200, 0.25, 'sawtooth', 0.05, -150);
+      if (Math.random() < 0.1) powerups.push({ x: e.x, y: e.y, kind: randomPowerup(), t: 0 });
+    }
+  }
+
+  // ---------- Missiles ----------
+  function updateMissiles(dt) {
+    if (missileT > 0) {
+      missileT -= dt; missileFire -= dt;
+      if (missileFire <= 0) {
+        missileFire = 0.65;
+        for (const s of [-1, 1]) missiles.push({ x: ship.x + s * 16, y: ship.y + 4, vx: s * 140, vy: -120, life: 3.5 });
+        beep(300, 0.18, 'triangle', 0.04, 300);
+      }
+    }
+    for (const m of missiles) {
+      m.life -= dt;
+      let tgt = null, bd = Infinity;
+      for (const e of enemies) {
+        if (e.dead || e.y < -10) continue;
+        const d = Math.hypot(e.x - m.x, e.y - m.y);
+        if (d < bd) { bd = d; tgt = e; }
+      }
+      if (boss && Math.hypot(boss.x - m.x, boss.y - m.y) < bd) tgt = boss;
+      let ang = Math.atan2(m.vy, m.vx);
+      if (tgt) {
+        const want = Math.atan2(tgt.y - m.y, tgt.x - m.x);
+        let diff = want - ang;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        ang += Math.max(-6 * dt, Math.min(6 * dt, diff));
+      }
+      const sp = Math.min(460, Math.hypot(m.vx, m.vy) + 500 * dt);
+      m.vx = Math.cos(ang) * sp; m.vy = Math.sin(ang) * sp;
+      m.x += m.vx * dt; m.y += m.vy * dt;
+      if (Math.random() < 0.6) particles.push({ x: m.x - m.vx * 0.03, y: m.y - m.vy * 0.03, vx: (Math.random() - 0.5) * 30, vy: (Math.random() - 0.5) * 30, life: 0.3, max: 0.4, color: Math.random() < 0.5 ? '#ff9f43' : '#8a93c4' });
+      for (const e of enemies) {
+        if (!e.dead && Math.hypot(e.x - m.x, e.y - m.y) < e.r + 6) {
+          m.dead = true; boom(m.x, m.y, '#ff9f43', 14, 160); damageEnemy(e, 3); break;
+        }
+      }
+      if (!m.dead && boss) {
+        const dx = (m.x - boss.x) / 66, dy = (m.y - boss.y) / 30;
+        if (dx * dx + dy * dy < 1) { m.dead = true; boom(m.x, m.y, '#ff9f43', 14, 160); damageBoss(4); }
+      }
+    }
+    missiles = missiles.filter(m => !m.dead && m.life > 0 && m.y > -40 && m.y < H + 40 && m.x > -40 && m.x < W + 40);
+  }
+
+  function drawMissile(m) {
+    ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(Math.atan2(m.vy, m.vx) + Math.PI / 2);
+    ctx.fillStyle = '#ff9f43'; ctx.shadowColor = '#ff9f43'; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(0, 7, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#e8ecff'; ctx.fillRect(-2.5, -5, 5, 11);
+    ctx.fillStyle = '#ff5577';
+    ctx.beginPath(); ctx.moveTo(-2.5, -5); ctx.lineTo(0, -10); ctx.lineTo(2.5, -5); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-2.5, 3); ctx.lineTo(-5.5, 7); ctx.lineTo(-2.5, 6); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(2.5, 3); ctx.lineTo(5.5, 7); ctx.lineTo(2.5, 6); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawPowerup(p) {
+    const pulse = 1 + 0.15 * Math.sin(p.t * 8);
+    const col = { rapid: '#ffe066', heart: '#ff5577', missile: '#ff9f43', shield: '#7fb2ff' }[p.kind];
+    ctx.save(); ctx.translate(p.x, p.y); ctx.scale(pulse, pulse);
+    ctx.shadowColor = col; ctx.shadowBlur = 12;
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(0, 0, 13, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#070a1a'; ctx.strokeStyle = '#070a1a';
+    if (p.kind === 'rapid' || p.kind === 'heart') {
+      ctx.font = 'bold 14px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(p.kind === 'rapid' ? '⚡' : '♥', 0, 1);
+    } else if (p.kind === 'missile') {
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-2.5, -4, 5, 10);
+      ctx.beginPath(); ctx.moveTo(-2.5, -4); ctx.lineTo(0, -9); ctx.lineTo(2.5, -4); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-2.5, 3); ctx.lineTo(-6, 8); ctx.lineTo(6, 8); ctx.lineTo(2.5, 3); ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(0, -8); ctx.lineTo(7, -5); ctx.lineTo(6, 2);
+      ctx.quadraticCurveTo(4, 6, 0, 9); ctx.quadraticCurveTo(-4, 6, -6, 2);
+      ctx.lineTo(-7, -5); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function updatePowerHud() {
+    let t = '';
+    if (shield > 0) t += `<span class="sh">SCHILD ${shield}</span>`;
+    if (missileT > 0) t += `<span class="mi">RAKETEN ${Math.ceil(missileT)}</span>`;
+    if (rapid > 0) t += `<span class="ra">⚡ ${Math.ceil(rapid)}</span>`;
+    if (t !== powerText) { powerText = t; $('power').innerHTML = t; }
   }
 
   function killBoss() {
@@ -262,8 +382,7 @@
     for (let i = 0; i < 6; i++) boom(b.x + (Math.random() - 0.5) * 110, b.y + (Math.random() - 0.5) * 40, i % 2 ? '#d68bff' : '#ffe066', 26, 260);
     beep(70, 1.0, 'sawtooth', 0.1, -40);
     shake = 0.5;
-    powerups.push({ x: b.x - 25, y: b.y, kind: 'heart', t: 0 });
-    powerups.push({ x: b.x + 25, y: b.y, kind: 'rapid', t: 0 });
+    ['heart', 'shield', 'missile', 'rapid'].forEach((k, i) => powerups.push({ x: b.x - 45 + i * 30, y: b.y, kind: k, t: 0 }));
     enemyShots = [];
     bannerText = '+' + pts + ' BOSS BESIEGT!'; bossWarn = 2;
     boss = null;
@@ -321,6 +440,12 @@
 
   function hitShip() {
     if (invuln > 0) return;
+    if (shield > 0) {
+      shield--; invuln = 0.8;
+      boom(ship.x, ship.y, '#7fb2ff', 18, 200);
+      beep(520, 0.18, 'triangle', 0.08, -300);
+      return;
+    }
     lives--; updateHud();
     boom(ship.x, ship.y, '#5ee6ff', 30, 240);
     beep(120, 0.4, 'sawtooth', 0.08, -80);
@@ -384,15 +509,10 @@
 
       // collision with bullets
       for (const b of bullets) {
-        if (!b.dead && Math.hypot(b.x - e.x, b.y - e.y) < e.r + 4) {
-          b.dead = true; e.hp--;
+        if (!b.dead && !e.dead && Math.hypot(b.x - e.x, b.y - e.y) < e.r + 4) {
+          b.dead = true;
           boom(b.x, b.y, '#ffe066', 4, 80);
-          if (e.hp <= 0 && !e.dead) {
-            e.dead = true; score += e.pts; updateHud();
-            boom(e.x, e.y, e.kind === 'rock' ? '#c9a27a' : e.kind === 'alien' ? '#9dff6e' : '#ff5577', 22);
-            beep(200, 0.25, 'sawtooth', 0.05, -150);
-            if (Math.random() < 0.07) powerups.push({ x: e.x, y: e.y, kind: Math.random() < 0.5 ? 'rapid' : 'heart', t: 0 });
-          }
+          damageEnemy(e, 1);
         }
       }
       // collision with ship
@@ -400,6 +520,7 @@
         e.dead = true; boom(e.x, e.y, '#ff5577', 20); hitShip();
       }
     }
+    updateMissiles(dt);
     if (boss && lives > 0) updateBoss(dt);
     bullets = bullets.filter(b => !b.dead);
     enemies = enemies.filter(e => !e.dead && e.y < H + 60 && e.x > -80 && e.x < W + 80);
@@ -416,7 +537,12 @@
       p.y += 90 * dt; p.t += dt;
       if (Math.hypot(p.x - ship.x, p.y - ship.y) < 28) {
         p.dead = true;
-        if (p.kind === 'rapid') rapid = 8; else { lives = Math.min(lives + 1, 5); updateHud(); }
+        if (p.kind === 'rapid') rapid = 8;
+        else if (p.kind === 'missile') { missileT = 10; missileFire = 0; }
+        else if (p.kind === 'shield') shield = 3;
+        else { lives = Math.min(lives + 1, 5); updateHud(); }
+        bannerText = { rapid: 'DREIFACHSCHUSS!', missile: 'RAKETEN!', shield: 'SCHILD!', heart: '+1 LEBEN' }[p.kind];
+        bannerText = '+' + bannerText.replace(/^\+/, ''); bossWarn = 1;
         beep(660, 0.12, 'triangle', 0.08, 500);
       }
     }
@@ -425,6 +551,7 @@
     // particles
     for (const p of particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.96; p.vy *= 0.96; p.life -= dt; }
     particles = particles.filter(p => p.life > 0);
+    updatePowerHud();
   }
 
   // ---------- Draw ----------
@@ -467,6 +594,17 @@
     if (rapid > 0) {
       ctx.strokeStyle = `rgba(255,224,102,${0.4 + 0.3 * Math.sin(time * 10)})`;
       ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 28, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (shield > 0) {
+      ctx.fillStyle = 'rgba(127,178,255,0.12)';
+      ctx.beginPath(); ctx.arc(x, y, 33, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#7fb2ff'; ctx.lineWidth = 3; ctx.shadowColor = '#7fb2ff'; ctx.shadowBlur = 10;
+      const seg = Math.PI * 2 / 3;
+      for (let i = 0; i < shield; i++) {
+        const a0 = -Math.PI / 2 + i * seg + 0.12 + time * 1.5;
+        ctx.beginPath(); ctx.arc(x, y, 33, a0, a0 + seg - 0.24); ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
     }
   }
 
@@ -515,15 +653,8 @@
       if (boss) drawBoss();
       ctx.fillStyle = '#ff5577';
       for (const s of enemyShots) { ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, Math.PI * 2); ctx.fill(); }
-      for (const p of powerups) {
-        const pulse = 1 + 0.15 * Math.sin(p.t * 8);
-        ctx.save(); ctx.translate(p.x, p.y); ctx.scale(pulse, pulse);
-        ctx.fillStyle = p.kind === 'rapid' ? '#ffe066' : '#ff5577';
-        ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#070a1a'; ctx.font = 'bold 14px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(p.kind === 'rapid' ? '⚡' : '♥', 0, 1);
-        ctx.restore();
-      }
+      missiles.forEach(drawMissile);
+      powerups.forEach(drawPowerup);
       drawShip();
     }
     for (const p of particles) {
