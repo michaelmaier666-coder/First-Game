@@ -81,7 +81,7 @@
   <h1>STERNEN&shy;JÄGER</h1>
   <p>Leg den Finger irgendwo auf den Bildschirm und zieh – dein Raumschiff folgt der Bewegung und schießt automatisch.</p>
   <p>Kämpf dich durch 6 Level mit immer neuen Gegnern. Am Ende jedes Levels wartet ein Boss!</p>
-  <p>Dein Schiff startet mit Sidewinder-Raketen, die sich ihr Ziel selbst suchen. Sammle Extras: ⚡ Dreifachschuss, Raketen-Upgrades (bleiben für immer!), Schild und ♥ Extraleben.</p>
+  <p>Dein Schiff startet mit Mini-Raketen und Sidewinder-Raketen, die sich ihr Ziel selbst suchen. Sammle Extras: ⚡ Dreifachschuss, Raketen-Upgrades (bleiben für immer!), Schild und ♥ Extraleben.</p>
   <button id="startBtn" type="button">START</button>
   <p id="bestStart"></p>
 </div>
@@ -140,6 +140,7 @@
   let score, lives, running = false, time = 0, spawnTimer = 0, fireTimer = 0, invuln = 0, rapid = 0, shake = 0;
   let boss = null, bossCount = 0, nextBossAt = 600, bossWarn = 0, bannerText = '';
   let level = 1, levelKills = 0, levelGoal = 25, levelTime = 0, levelPause = 0, bannerSub = '', bannerSub2 = '';
+  let miniFire = 0, miniSide = 1;
   let missiles = [], missileLvl = 0, missileFire = 0, shield = 0, powerText = '';
 
   function reset() {
@@ -320,7 +321,7 @@
   }
 
   function drawProgress() {
-    const bw = Math.min(W - 40, 320), bx = (W - bw) / 2, by = 56;
+    const bw = Math.min(W - 40, 320), bx = (W - bw) / 2, by = 76;
     ctx.fillStyle = 'rgba(232,236,255,0.12)'; ctx.fillRect(bx, by, bw, 4);
     ctx.fillStyle = '#5ee6ff'; ctx.fillRect(bx, by, bw * Math.min(1, levelKills / levelGoal), 4);
     ctx.fillStyle = '#8a93c4'; ctx.font = '600 10px Orbitron, system-ui, sans-serif';
@@ -426,8 +427,21 @@
         beep(300, 0.18, 'triangle', 0.04, 300);
       }
     }
+    // mini-rockets: always on, fly straight, alternate left/right
+    miniFire -= dt;
+    if (miniFire <= 0) {
+      miniFire = 0.3;
+      miniSide = -miniSide;
+      missiles.push({ mini: true, x: ship.x + miniSide * 12, y: ship.y - 4, vx: 0, vy: -260, life: 3 });
+      beep(520, 0.05, 'triangle', 0.015, 200);
+    }
     for (const m of missiles) {
       m.life -= dt;
+      if (m.mini) {
+        m.vy = Math.max(-640, m.vy - 900 * dt);
+        m.y += m.vy * dt;
+        if (Math.random() < 0.35) particles.push({ x: m.x, y: m.y + 6, vx: (Math.random() - 0.5) * 20, vy: 40, life: 0.2, max: 0.3, color: '#ff9f43' });
+      } else {
       let tgt = null, bd = Infinity;
       for (const e of enemies) {
         if (e.dead || e.y < -10) continue;
@@ -447,14 +461,15 @@
       m.vx = Math.cos(ang) * sp; m.vy = Math.sin(ang) * sp;
       m.x += m.vx * dt; m.y += m.vy * dt;
       if (Math.random() < 0.6) particles.push({ x: m.x - m.vx * 0.03, y: m.y - m.vy * 0.03, vx: (Math.random() - 0.5) * 30, vy: (Math.random() - 0.5) * 30, life: 0.3, max: 0.4, color: Math.random() < 0.5 ? '#ff9f43' : '#8a93c4' });
+      }
       for (const e of enemies) {
         if (!e.dead && Math.hypot(e.x - m.x, e.y - m.y) < e.r + 6) {
-          m.dead = true; boom(m.x, m.y, '#ff9f43', 14, 160); damageEnemy(e, 3); break;
+          m.dead = true; boom(m.x, m.y, '#ff9f43', m.mini ? 8 : 14, m.mini ? 100 : 160); damageEnemy(e, m.mini ? 2 : 3); break;
         }
       }
       if (!m.dead && boss) {
         const dx = (m.x - boss.x) / 66, dy = (m.y - boss.y) / 30;
-        if (dx * dx + dy * dy < 1) { m.dead = true; boom(m.x, m.y, '#ff9f43', 14, 160); damageBoss(4); }
+        if (dx * dx + dy * dy < 1) { m.dead = true; boom(m.x, m.y, '#ff9f43', m.mini ? 8 : 14, 160); damageBoss(m.mini ? 2 : 4); }
       }
     }
     missiles = missiles.filter(m => !m.dead && m.life > 0 && m.y > -40 && m.y < H + 40 && m.x > -40 && m.x < W + 40);
@@ -462,6 +477,7 @@
 
   function drawMissile(m) {
     ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(Math.atan2(m.vy, m.vx) + Math.PI / 2);
+    if (m.mini) ctx.scale(0.6, 0.6);
     ctx.fillStyle = '#ff9f43'; ctx.shadowColor = '#ff9f43'; ctx.shadowBlur = 8;
     ctx.beginPath(); ctx.arc(0, 7, 3, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
@@ -501,6 +517,7 @@
   function updatePowerHud() {
     let t = '';
     if (shield > 0) t += `<span class="sh">SCHILD ${shield}</span>`;
+    t += `<span class="mi">MINI</span>`;
     if (missileLvl > 0) t += `<span class="mi">SIDEWINDER ${'▲'.repeat(missileLvl)}</span>`;
     if (rapid > 0) t += `<span class="ra">⚡ ${Math.ceil(rapid)}</span>`;
     if (t !== powerText) { powerText = t; $('power').innerHTML = t; }
@@ -554,7 +571,7 @@
     ctx.restore();
 
     // health bar
-    const bw = Math.min(W - 40, 320), bx = (W - bw) / 2, by = 56;
+    const bw = Math.min(W - 40, 320), bx = (W - bw) / 2, by = 76;
     ctx.fillStyle = 'rgba(232,236,255,0.15)'; ctx.fillRect(bx, by, bw, 8);
     ctx.fillStyle = angry ? '#ff5577' : '#d68bff';
     ctx.fillRect(bx, by, bw * Math.max(0, b.hp / b.maxHp), 8);
@@ -807,7 +824,10 @@
       const isLevel = !!bannerSub;
       ctx.globalAlpha = Math.min(1, bossWarn) * (isLevel ? 1 : 0.6 + 0.4 * Math.sin(time * 12));
       ctx.fillStyle = isLevel ? '#5ee6ff' : bannerText.startsWith('+') ? '#ffe066' : '#ff5577';
-      ctx.font = '800 ' + Math.min(44, W / 9) + 'px Orbitron, system-ui, sans-serif';
+      let fs = Math.min(44, W / 9);
+      ctx.font = '800 ' + fs + 'px Orbitron, system-ui, sans-serif';
+      const mw = ctx.measureText(bannerText).width;
+      if (mw > W - 32) { fs = fs * (W - 32) / mw; ctx.font = '800 ' + fs + 'px Orbitron, system-ui, sans-serif'; }
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(bannerText, W / 2, H * 0.42);
       if (isLevel) {
