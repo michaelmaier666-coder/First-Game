@@ -427,20 +427,24 @@
         beep(300, 0.18, 'triangle', 0.04, 300);
       }
     }
-    // mini-rockets: always on, fly straight, alternate left/right
+    // mini-rockets: salvo of 10 in a fan, fly straight (no homing)
     miniFire -= dt;
     if (miniFire <= 0) {
-      miniFire = 0.3;
-      miniSide = -miniSide;
-      missiles.push({ mini: true, x: ship.x + miniSide * 12, y: ship.y - 4, vx: 0, vy: -260, life: 3 });
-      beep(520, 0.05, 'triangle', 0.015, 200);
+      miniFire = 1.6;
+      for (let i = 0; i < 10; i++) {
+        const a = -0.75 + i * (1.5 / 9);
+        const ax = Math.sin(a), ay = -Math.cos(a);
+        missiles.push({ mini: true, x: ship.x + ax * 14, y: ship.y - 6, ax, ay, sp: 180 + Math.random() * 40, vx: ax * 180, vy: ay * 180, life: 2.5 });
+      }
+      beep(700, 0.12, 'square', 0.03, 600);
     }
     for (const m of missiles) {
       m.life -= dt;
       if (m.mini) {
-        m.vy = Math.max(-640, m.vy - 900 * dt);
-        m.y += m.vy * dt;
-        if (Math.random() < 0.35) particles.push({ x: m.x, y: m.y + 6, vx: (Math.random() - 0.5) * 20, vy: 40, life: 0.2, max: 0.3, color: '#ff9f43' });
+        m.sp = Math.min(560, m.sp + 900 * dt);
+        m.vx = m.ax * m.sp; m.vy = m.ay * m.sp;
+        m.x += m.vx * dt; m.y += m.vy * dt;
+        if (Math.random() < 0.3) particles.push({ x: m.x - m.ax * 6, y: m.y - m.ay * 6, vx: (Math.random() - 0.5) * 20, vy: (Math.random() - 0.5) * 20, life: 0.18, max: 0.25, color: '#5ee6ff' });
       } else {
       let tgt = null, bd = Infinity;
       for (const e of enemies) {
@@ -464,12 +468,12 @@
       }
       for (const e of enemies) {
         if (!e.dead && Math.hypot(e.x - m.x, e.y - m.y) < e.r + 6) {
-          m.dead = true; boom(m.x, m.y, '#ff9f43', m.mini ? 8 : 14, m.mini ? 100 : 160); damageEnemy(e, m.mini ? 2 : 3); break;
+          m.dead = true; boom(m.x, m.y, m.mini ? '#5ee6ff' : '#ff9f43', m.mini ? 6 : 14, m.mini ? 90 : 160); damageEnemy(e, m.mini ? 1 : 3); break;
         }
       }
       if (!m.dead && boss) {
         const dx = (m.x - boss.x) / 66, dy = (m.y - boss.y) / 30;
-        if (dx * dx + dy * dy < 1) { m.dead = true; boom(m.x, m.y, '#ff9f43', m.mini ? 8 : 14, 160); damageBoss(m.mini ? 2 : 4); }
+        if (dx * dx + dy * dy < 1) { m.dead = true; boom(m.x, m.y, m.mini ? '#5ee6ff' : '#ff9f43', m.mini ? 6 : 14, 160); damageBoss(m.mini ? 1 : 4); }
       }
     }
     missiles = missiles.filter(m => !m.dead && m.life > 0 && m.y > -40 && m.y < H + 40 && m.x > -40 && m.x < W + 40);
@@ -477,7 +481,17 @@
 
   function drawMissile(m) {
     ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(Math.atan2(m.vy, m.vx) + Math.PI / 2);
-    if (m.mini) ctx.scale(0.6, 0.6);
+    if (m.mini) {
+      // slim cyan dart with blue flame – looks different from the Sidewinder
+      ctx.fillStyle = '#5ee6ff'; ctx.shadowColor = '#5ee6ff'; ctx.shadowBlur = 8;
+      ctx.beginPath(); ctx.moveTo(-1.5, 4); ctx.lineTo(0, 9 + Math.random() * 3); ctx.lineTo(1.5, 4); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#b8f4ff'; ctx.fillRect(-1.2, -4, 2.4, 8);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.moveTo(-1.2, -4); ctx.lineTo(0, -7); ctx.lineTo(1.2, -4); ctx.fill();
+      ctx.restore();
+      return;
+    }
     ctx.fillStyle = '#ff9f43'; ctx.shadowColor = '#ff9f43'; ctx.shadowBlur = 8;
     ctx.beginPath(); ctx.arc(0, 7, 3, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
@@ -517,7 +531,7 @@
   function updatePowerHud() {
     let t = '';
     if (shield > 0) t += `<span class="sh">SCHILD ${shield}</span>`;
-    t += `<span class="mi">MINI</span>`;
+    t += `<span class="sh">MINI ×10</span>`;
     if (missileLvl > 0) t += `<span class="mi">SIDEWINDER ${'▲'.repeat(missileLvl)}</span>`;
     if (rapid > 0) t += `<span class="ra">⚡ ${Math.ceil(rapid)}</span>`;
     if (t !== powerText) { powerText = t; $('power').innerHTML = t; }
