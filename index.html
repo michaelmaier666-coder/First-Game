@@ -81,7 +81,7 @@
   <h1>STERNEN&shy;JÄGER</h1>
   <p>Leg den Finger irgendwo auf den Bildschirm und zieh – dein Raumschiff folgt der Bewegung und schießt automatisch.</p>
   <p>Kämpf dich durch 6 Level mit immer neuen Gegnern. Weich den feindlichen Schüssen und Laserstrahlen aus! Am Ende jedes Levels wartet ein anderer Boss.</p>
-  <p>Dein Schiff startet mit Mini-Raketen und Sidewinder-Raketen, die sich ihr Ziel selbst suchen. Sammle Extras: ⚡ Dreifachschuss, Raketen-Upgrades (bleiben für immer!), Schild und ♥ Extraleben.</p>
+  <p>Dein Schiff startet mit Splitterraketen (teilen sich in 10) und Sidewinder-Raketen (teilen sich in 5, die ihr Ziel selbst suchen). Sammle Extras: ⚡ Dreifachschuss, Raketen-Upgrades (bleiben für immer!), Schild und ♥ Extraleben.</p>
   <button id="startBtn" type="button">START</button>
   <p id="bestStart"></p>
 </div>
@@ -603,13 +603,17 @@
         m.x += m.vx * dt; m.y += m.vy * dt;
         if (Math.random() < 0.3) particles.push({ x: m.x - m.ax * 6, y: m.y - m.ay * 6, vx: (Math.random() - 0.5) * 20, vy: (Math.random() - 0.5) * 20, life: 0.18, max: 0.25, color: '#5ee6ff' });
       } else {
-      let tgt = null, bd = Infinity;
+      m.age = (m.age || 0) + dt;
+      if (!m.child && m.age > 0.45) { splitSidewinder(m); continue; }
+      let tgt = validTarget(m.tgt) ? m.tgt : null, bd = Infinity;
+      if (!tgt) {
       for (const e of enemies) {
         if (e.dead || e.y < -10) continue;
         const d = Math.hypot(e.x - m.x, e.y - m.y);
         if (d < bd) { bd = d; tgt = e; }
       }
       if (boss && Math.hypot(boss.x - m.x, boss.y - m.y) < bd) tgt = boss;
+      }
       let ang = Math.atan2(m.vy, m.vx);
       if (tgt) {
         const want = Math.atan2(tgt.y - m.y, tgt.x - m.x);
@@ -621,19 +625,35 @@
       const sp = Math.min(460, Math.hypot(m.vx, m.vy) + 500 * dt);
       m.vx = Math.cos(ang) * sp; m.vy = Math.sin(ang) * sp;
       m.x += m.vx * dt; m.y += m.vy * dt;
-      if (Math.random() < 0.6) particles.push({ x: m.x - m.vx * 0.03, y: m.y - m.vy * 0.03, vx: (Math.random() - 0.5) * 30, vy: (Math.random() - 0.5) * 30, life: 0.3, max: 0.4, color: Math.random() < 0.5 ? '#ff9f43' : '#8a93c4' });
+      if (Math.random() < (m.child ? 0.25 : 0.6)) particles.push({ x: m.x - m.vx * 0.03, y: m.y - m.vy * 0.03, vx: (Math.random() - 0.5) * 30, vy: (Math.random() - 0.5) * 30, life: 0.3, max: 0.4, color: Math.random() < 0.5 ? '#ff9f43' : '#8a93c4' });
       }
       for (const e of enemies) {
         if (!e.dead && Math.hypot(e.x - m.x, e.y - m.y) < e.r + 6) {
-          m.dead = true; boom(m.x, m.y, m.mini ? '#5ee6ff' : '#ff9f43', m.mini ? 6 : 14, m.mini ? 90 : 160); damageEnemy(e, m.mini ? 1 : 3); break;
+          m.dead = true; boom(m.x, m.y, m.mini ? '#5ee6ff' : '#ff9f43', m.mini ? 6 : 14, m.mini ? 90 : 160); damageEnemy(e, m.mini || m.child ? 1 : 3); break;
         }
       }
       if (!m.dead && boss) {
         const dx = (m.x - boss.x) / boss.w, dy = (m.y - boss.y) / boss.h;
-        if (dx * dx + dy * dy < 1) { m.dead = true; boom(m.x, m.y, m.mini ? '#5ee6ff' : '#ff9f43', m.mini ? 6 : 14, 160); damageBoss(m.mini ? 1 : 4); }
+        if (dx * dx + dy * dy < 1) { m.dead = true; boom(m.x, m.y, m.mini ? '#5ee6ff' : '#ff9f43', m.mini ? 6 : 14, 160); damageBoss(m.mini || m.child ? 1 : 4); }
       }
     }
     missiles = missiles.filter(m => !m.dead && m.life > 0 && m.y > -40 && m.y < H + 40 && m.x > -40 && m.x < W + 40);
+  }
+
+  function validTarget(t) { return t && (t === boss || (!t.dead && t.kind)); }
+
+  function splitSidewinder(m) {
+    m.dead = true;
+    const targets = enemies.filter(e => !e.dead && e.y > -10)
+      .sort((a, b) => Math.hypot(a.x - m.x, a.y - m.y) - Math.hypot(b.x - m.x, b.y - m.y));
+    if (boss) targets.push(boss);
+    const ang = Math.atan2(m.vy, m.vx), sp = Math.max(220, Math.hypot(m.vx, m.vy));
+    for (let i = 0; i < 5; i++) {
+      const a = ang + (i - 2) * 0.35;
+      missiles.push({ child: true, x: m.x, y: m.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 3, age: 0, tgt: targets.length ? targets[i % targets.length] : null });
+    }
+    boom(m.x, m.y, '#ff9f43', 8, 100);
+    beep(600, 0.08, 'triangle', 0.03, 300);
   }
 
   function drawMissile(m) {
@@ -650,6 +670,7 @@
       ctx.restore();
       return;
     }
+    if (m.child) ctx.scale(0.65, 0.65);
     ctx.fillStyle = '#ff9f43'; ctx.shadowColor = '#ff9f43'; ctx.shadowBlur = 8;
     ctx.beginPath(); ctx.arc(0, 7, 3, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
