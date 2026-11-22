@@ -81,7 +81,7 @@
   <h1>STERNEN&shy;JÄGER</h1>
   <p>Leg den Finger irgendwo auf den Bildschirm und zieh – dein Raumschiff folgt der Bewegung und schießt automatisch.</p>
   <p>Kämpf dich durch 6 Level mit immer neuen Gegnern. Weich den feindlichen Schüssen und Laserstrahlen aus! Am Ende jedes Levels wartet ein anderer Boss.</p>
-  <p>Dein Schiff startet mit Splitterraketen (teilen sich in 10) und Sidewinder-Raketen (teilen sich in 5, die ihr Ziel selbst suchen). Sammle Extras: ⚡ Dreifachschuss, Raketen-Upgrades (bleiben für immer!), Schild und ♥ Extraleben.</p>
+  <p>Dein Schiff startet mit Splitterraketen (teilen sich in 10) und Sidewinder-Raketen (teilen sich in 10, die ihr Ziel selbst suchen). Sammle Extras: ⚡ Dreifachschuss, Raketen-Upgrades (bleiben für immer!), Schild und ♥ Extraleben.</p>
   <button id="startBtn" type="button">START</button>
   <p id="bestStart"></p>
 </div>
@@ -625,7 +625,7 @@
       const sp = Math.min(460, Math.hypot(m.vx, m.vy) + 500 * dt);
       m.vx = Math.cos(ang) * sp; m.vy = Math.sin(ang) * sp;
       m.x += m.vx * dt; m.y += m.vy * dt;
-      if (Math.random() < (m.child ? 0.25 : 0.6)) particles.push({ x: m.x - m.vx * 0.03, y: m.y - m.vy * 0.03, vx: (Math.random() - 0.5) * 30, vy: (Math.random() - 0.5) * 30, life: 0.3, max: 0.4, color: Math.random() < 0.5 ? '#ff9f43' : '#8a93c4' });
+      if (Math.random() < (m.child ? 0.12 : 0.6)) particles.push({ x: m.x - m.vx * 0.03, y: m.y - m.vy * 0.03, vx: (Math.random() - 0.5) * 30, vy: (Math.random() - 0.5) * 30, life: 0.3, max: 0.4, color: Math.random() < 0.5 ? '#ff9f43' : '#8a93c4' });
       }
       for (const e of enemies) {
         if (!e.dead && Math.hypot(e.x - m.x, e.y - m.y) < e.r + 6) {
@@ -648,8 +648,9 @@
       .sort((a, b) => Math.hypot(a.x - m.x, a.y - m.y) - Math.hypot(b.x - m.x, b.y - m.y));
     if (boss) targets.push(boss);
     const ang = Math.atan2(m.vy, m.vx), sp = Math.max(220, Math.hypot(m.vx, m.vy));
-    for (let i = 0; i < 5; i++) {
-      const a = ang + (i - 2) * 0.35;
+    const n = missiles.length > 450 ? 5 : 10;
+    for (let i = 0; i < n; i++) {
+      const a = ang + (i - (n - 1) / 2) * (n === 10 ? 0.2 : 0.35);
       missiles.push({ child: true, x: m.x, y: m.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 3, age: 0, tgt: targets.length ? targets[i % targets.length] : null });
     }
     boom(m.x, m.y, '#ff9f43', 8, 100);
