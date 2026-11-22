@@ -140,7 +140,7 @@
   let score, lives, running = false, time = 0, spawnTimer = 0, fireTimer = 0, invuln = 0, rapid = 0, shake = 0;
   let boss = null, bossCount = 0, nextBossAt = 600, bossWarn = 0, bannerText = '';
   let level = 1, levelKills = 0, levelGoal = 25, levelTime = 0, levelPause = 0, bannerSub = '', bannerSub2 = '';
-  let miniFire = 0, miniSide = 1;
+  let miniFire = 0, miniSide = 1, carriers = [];
   let missiles = [], missileLvl = 0, missileFire = 0, shield = 0, powerText = '';
 
   function reset() {
@@ -148,7 +148,7 @@
     bullets = []; enemies = []; enemyShots = []; particles = []; powerups = [];
     score = 0; lives = 3; time = 0; spawnTimer = 0.6; fireTimer = 0; invuln = 1.5; rapid = 0; shake = 0;
     boss = null; bossCount = 0; nextBossAt = 600; bossWarn = 0;
-    missiles = []; missileLvl = 1; missileFire = 1; shield = 0;
+    missiles = []; carriers = []; missileLvl = 1; missileFire = 1; shield = 0;
     levelPause = 0; startLevel(1);
     updateHud();
   }
@@ -570,17 +570,31 @@
         beep(300, 0.18, 'triangle', 0.04, 300);
       }
     }
-    // mini-rockets: salvo of 10 in a fan, fly straight (no homing)
+    // cluster rocket: one carrier launches, then splits into 10 mini-rockets (fly straight, no homing)
     miniFire -= dt;
     if (miniFire <= 0) {
       miniFire = 1.6;
-      for (let i = 0; i < 10; i++) {
-        const a = -0.75 + i * (1.5 / 9);
-        const ax = Math.sin(a), ay = -Math.cos(a);
-        missiles.push({ mini: true, x: ship.x + ax * 14, y: ship.y - 6, ax, ay, sp: 180 + Math.random() * 40, vx: ax * 180, vy: ay * 180, life: 2.5 });
-      }
-      beep(700, 0.12, 'square', 0.03, 600);
+      carriers.push({ mini: true, big: true, x: ship.x, y: ship.y - 20, vx: 0, vy: -300, t: 0 });
+      beep(420, 0.15, 'square', 0.03, 300);
     }
+    for (const c of carriers) {
+      c.t += dt;
+      c.vy = Math.max(-420, c.vy - 300 * dt);
+      c.y += c.vy * dt;
+      if (Math.random() < 0.5) particles.push({ x: c.x, y: c.y + 12, vx: (Math.random() - 0.5) * 30, vy: 60, life: 0.25, max: 0.3, color: '#5ee6ff' });
+      const near = enemies.some(e => !e.dead && Math.hypot(e.x - c.x, e.y - c.y) < e.r + 50) || (boss && Math.abs(c.x - boss.x) < boss.w && c.y - boss.y < boss.h + 50);
+      if (c.t > 0.4 || near || c.y < 40) {
+        c.dead = true;
+        for (let i = 0; i < 10; i++) {
+          const a = -1.0 + i * (2.0 / 9);
+          const ax = Math.sin(a), ay = -Math.cos(a);
+          missiles.push({ mini: true, x: c.x + ax * 6, y: c.y + ay * 6, ax, ay, sp: 220 + Math.random() * 60, vx: ax * 220, vy: ay * 220, life: 2.5 });
+        }
+        boom(c.x, c.y, '#5ee6ff', 12, 140);
+        beep(900, 0.1, 'square', 0.035, 500);
+      }
+    }
+    carriers = carriers.filter(c => !c.dead);
     for (const m of missiles) {
       m.life -= dt;
       if (m.mini) {
@@ -625,6 +639,7 @@
   function drawMissile(m) {
     ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(Math.atan2(m.vy, m.vx) + Math.PI / 2);
     if (m.mini) {
+      if (m.big) ctx.scale(1.9, 1.9);
       // slim cyan dart with blue flame – looks different from the Sidewinder
       ctx.fillStyle = '#5ee6ff'; ctx.shadowColor = '#5ee6ff'; ctx.shadowBlur = 8;
       ctx.beginPath(); ctx.moveTo(-1.5, 4); ctx.lineTo(0, 9 + Math.random() * 3); ctx.lineTo(1.5, 4); ctx.fill();
@@ -1120,6 +1135,7 @@
         }
       }
       missiles.forEach(drawMissile);
+      carriers.forEach(drawMissile);
       powerups.forEach(drawPowerup);
       drawShip();
     }
